@@ -2,6 +2,7 @@ import logging
 
 import bpy
 from bpy.types import Context
+import numpy as np
 
 from .str_reader import Model, PrimitiveType
 
@@ -60,10 +61,73 @@ def import_str(context: Context, model: Model) -> None:
         elif display_list.vertex_flags.position_format == 2:
             positions = positions.astype(float) / 32767.0
 
+        # Import geometry
         mesh = bpy.data.meshes.new(model.name)
         mesh.from_pydata(positions, [], triangles)
+
+        # Remove degenerate triangles
         mesh.validate(verbose=True)
         mesh.update()
 
+        # Quantize and import normals
+        if "normal" in display_list.vertices.dtype.names:
+            normals = display_list.vertices["normal"]
+            if display_list.vertex_flags.normal_format == 1:
+                normals = normals.astype(float) / 127.0
+            elif display_list.vertex_flags.normal_format == 2:
+                normals = normals.astype(float) / 32767.0
+            mesh.normals_split_custom_set_from_vertices(normals)
+
+        # Quantize and import UVs
+        if "uv" in display_list.vertices.dtype.names:
+            uvs = display_list.vertices["uv"]
+            if display_list.vertex_flags.uv_format == 1:
+                uvs = uvs.astype(float) / 127.0
+            elif display_list.vertex_flags.normal_format == 2:
+                uvs = uvs.astype(float) / 32767.0
+
+            uv_layer = mesh.uv_layers.new()
+            vertex_idx_array = np.empty(len(mesh.loops), dtype=np.int32)
+            mesh.loops.foreach_get("vertex_index", vertex_idx_array)
+            uv_layer.uv.foreach_set("vector", uvs[vertex_idx_array].ravel())
+
+        # Convert and import vertex colors
+        if "color" in display_list.vertices.dtype.names:
+            raw_colors = display_list.vertices["color"]
+            rgba = np.empty((raw_colors.size, 4), dtype=np.uint8)
+            if display_list.vertex_flags.color_format == 4:
+                # RGB565
+                rgba[:, 0] = (raw_colors & 0x1F) * 255 // 31
+                rgba[:, 1] = ((raw_colors >> 5) & 0x3F) * 255 // 63
+                rgba[:, 2] = ((raw_colors >> 11) & 0x1F) * 255 // 31
+                rgba[:, 3] = 255
+            elif display_list.vertex_flags.color_format == 5:
+                # RGBA5551
+                rgba[:, 0] = (raw_colors & 0x1F) * 255 // 31
+                rgba[:, 1] = ((raw_colors >> 5) & 0x1F) * 255 // 31
+                rgba[:, 2] = ((raw_colors >> 10) & 0x1F) * 255 // 31
+                rgba[:, 3] = ((raw_colors >> 15) & 0x1) * 255
+            elif display_list.vertex_flags.color_format == 6:
+                # RGBA4444
+                rgba[:, 0] = (raw_colors & 0xF) * 0x11
+                rgba[:, 1] = ((raw_colors >> 4) & 0xF) * 0x11
+                rgba[:, 2] = ((raw_colors >> 8) & 0xF) * 0x11
+                rgba[:, 3] = ((raw_colors >> 12) & 0xF) * 0x11
+            else:
+                # RGBA8888
+                rgba = np.ascontiguousarray(raw_colors).view(np.uint8)
+                pass
+
+            vertex_color_attr = mesh.color_attributes.new(
+                name="vertex_color",
+                type="BYTE_COLOR",
+                domain="POINT",
+            )
+            vertex_color_attr.data.foreach_set(
+                "color",
+                rgba.ravel(),
+            )
+
+        # Create mesh object
         mesh_obj = bpy.data.objects.new(model.name, mesh)
         context.collection.objects.link(mesh_obj)

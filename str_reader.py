@@ -24,7 +24,7 @@ class VertexFlags(NamedTuple):
     position_format: int
     normal_format: int
     color_format: int
-    texture_format: int
+    uv_format: int
 
 
 class PrimitiveType(Enum):
@@ -90,13 +90,13 @@ def _vtype_flags_to_dtype(flags: VertexFlags) -> npt.DTypeLike:
             type_sizes[flags.weight_format],
         )
 
-    if flags.texture_format:
-        alignment = type_sizes[flags.texture_format]
+    if flags.uv_format:
+        alignment = type_sizes[flags.uv_format]
         offset = align(offset, alignment)
-        names.append("uvs")
-        formats.append((unsigned_types[flags.texture_format], 2))
+        names.append("uv")
+        formats.append((unsigned_types[flags.uv_format], 2))
         offsets.append(offset)
-        offset += type_sizes[flags.texture_format] * 2
+        offset += type_sizes[flags.uv_format] * 2
         vertex_alignment = max(vertex_alignment, alignment)
 
     if flags.color_format:

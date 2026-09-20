@@ -5,6 +5,8 @@ from bpy.types import Context
 
 from .str_reader import Model, PrimitiveType
 
+logger = logging.getLogger(__name__)
+
 
 def import_str(context: Context, model: Model) -> None:
     for display_list in model.display_lists:
@@ -48,7 +50,7 @@ def import_str(context: Context, model: Model) -> None:
                                 )
                             )
                 case _:
-                    logging.error("Unimplemented primitive type %s", prim.prim_type)
+                    logger.error("Unimplemented primitive type %s", prim.prim_type)
             vertex_idx += prim.vertex_count
 
         # Quantize positions

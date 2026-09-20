@@ -9,6 +9,8 @@ import numpy.typing as npt
 
 from .binary_reader import BinaryReader, GECommand
 
+logger = logging.getLogger(__name__)
+
 RACER_BASE_0 = 0x8E149A0
 RACER_BASE_1 = 0x9047CE0
 
@@ -157,7 +159,7 @@ def _read_display_lists(bs: BinaryReader) -> list[DisplayList]:
     for _ in range(display_list_count):
         while True:
             unk_int = bs.read_int32()
-            logging.info(f"Skipped int {unk_int} at {bs.tell()}")
+            logger.debug("Skipping unknown int %i at 0x%x", unk_int, bs.tell() - 4)
             if unk_int == -1:
                 break
         display_list_offs.append(bs.read_uint32())
@@ -169,7 +171,7 @@ def _read_display_lists(bs: BinaryReader) -> list[DisplayList]:
         bs.seek(geometry_off + rel_off)
         command, argument = bs.read_ge_command()
         if command != GECommand.VTYPE:
-            logging.error(f"Expected VTYPE command; got {command}")
+            logger.error("Expected VTYPE command; got %s", command)
             continue
         vertex_flags = VertexFlags(
             ((argument >> 23) & 0x1) > 0,
@@ -192,8 +194,8 @@ def _read_display_lists(bs: BinaryReader) -> list[DisplayList]:
             if command == GECommand.RET:
                 break
             if command != GECommand.PRIM:
-                logging.warning(
-                    f"Unimplemented GE command {command} at {bs.tell() - 4}"
+                logger.warning(
+                    "Unimplemented GE command %s at 0x%x", command, bs.tell() - 4
                 )
                 continue
             flags = (argument & 0xF80000) >> 0x13
@@ -207,7 +209,7 @@ def _read_display_lists(bs: BinaryReader) -> list[DisplayList]:
         display_lists.append(display_list)
 
     # Read vertices
-    logging.info(f"Vertex start offset: {bs.tell()}")
+    logger.debug("Vertex start offset: 0x%x", bs.tell())
     for display_list in display_lists:
         display_list.vertices[...] = np.frombuffer(
             bs.getbuffer(),
@@ -252,7 +254,13 @@ def _read_model(bs: BinaryReader, base: int) -> Model:
     name = bs.read_aligned_cstring()
     bs.seek(display_list_off)
     display_lists = _read_display_lists(bs)
-    print(unk_off_0, unk_off_1, unk_off_2, unk_off_3)
+    logger.debug(
+        "Unknown model offsets: 0x%x, 0x%x, 0x%x, 0x%x",
+        unk_off_0,
+        unk_off_1,
+        unk_off_2,
+        unk_off_3,
+    )
     return Model(name, display_lists)
 
 
@@ -271,7 +279,9 @@ def read_str(f: BufferedReader) -> Model:
     bs.seek(8, 1)
     unk_off_2 = bs.read_uint32() - base
     file_off_1 = bs.read_uint32() - base
-    print(unk_off_0, unk_off_1, unk_off_2)
+    logger.debug(
+        "Unknown offsets (layer 0): 0x%x, 0x%x, 0x%x", unk_off_0, unk_off_1, unk_off_2
+    )
 
     bs.seek(file_off_1)
     flags = bs.read_uint32()
@@ -280,13 +290,13 @@ def read_str(f: BufferedReader) -> Model:
     bs.seek(64, 1)
     file_off_2 = bs.read_uint32() - base
     unk_off_1 = bs.read_uint32() - base
-    print(unk_off_0, file_off_2, unk_off_1)
+    logger.debug("Unknown offsets (layer 1): 0x%x, 0x%x", unk_off_0, unk_off_1)
 
     bs.seek(file_off_2)
     sig = bs.read_uint32()
     unk_off_0 = bs.read_uint32() - base
     model_off = bs.read_uint32() - base
-    print(unk_off_0)
+    logger.debug("Unknown offset (layer 2): 0x%x", unk_off_0)
 
     bs.seek(model_off)
     model = _read_model(bs, base)

@@ -9,6 +9,7 @@ bl_info = {
     "category": "Import-Export",
 }
 
+import logging
 from pathlib import Path
 
 import bpy
@@ -17,6 +18,15 @@ from bpy.props import StringProperty
 from bpy.types import Operator, Context
 
 from . import str_reader, str_importer
+
+# Set up logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler()
+handler.setFormatter(
+    logging.Formatter("%(levelname)s: %(message)s (%(filename)s:%(lineno)d)")
+)
+logger.addHandler(handler)
 
 
 class IMPORT_OT_SCENE_str(Operator, ImportHelper):

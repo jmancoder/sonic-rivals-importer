@@ -42,8 +42,8 @@ class Model(NamedTuple):
 
 def _read_vtype(vtype_arg: int) -> npt.DTypeLike:
     transform_bypass = (vtype_arg >> 23) & 0x1
-    morph_count = (vtype_arg >> 18) & 0x7
-    weight_count = (vtype_arg >> 14) & 0x7
+    morph_count = ((vtype_arg >> 18) & 0x7) + 1
+    weight_count = ((vtype_arg >> 14) & 0x7) + 1
     index_format = (vtype_arg >> 11) & 0x3
     weight_format = (vtype_arg >> 9) & 0x3
     position_format = (vtype_arg >> 7) & 0x3
@@ -51,46 +51,92 @@ def _read_vtype(vtype_arg: int) -> npt.DTypeLike:
     color_format = (vtype_arg >> 2) & 0x7
     texture_format = vtype_arg & 0x3
 
-    fields = []
-    if weight_count > 0 and weight_format > 0:
-        if weight_format == 1:
-            elem_type = "<u1"
-        elif weight_format == 2:
-            elem_type = "<u2"
-        else:
-            elem_type = "<f4"
-        fields.append(("weights", elem_type, weight_count))
-    if texture_format > 0:
-        if texture_format == 1:
-            elem_type = "<u1"
-        elif texture_format == 2:
-            elem_type = "<u2"
-        else:
-            elem_type = "<f4"
-        fields.append(("uvs", elem_type, 2))
-    if color_format > 0:
-        if color_format == 7:
-            elem_type = "<u4"
-        else:
-            elem_type = "<u2"
-        fields.append(("color", elem_type))
-    if normal_format > 0:
-        if normal_format == 1:
-            elem_type = "<i1"
-        elif normal_format == 2:
-            elem_type = "<i2"
-        else:
-            elem_type = "<f4"
-        fields.append(("normal", elem_type, 3))
+    unsigned_types = {
+        1: "<u1",
+        2: "<u2",
+        3: "<f4",
+    }
+    signed_types = {
+        1: "<i1",
+        2: "<i2",
+        3: "<f4",
+    }
+    type_sizes = {
+        1: 1,
+        2: 2,
+        3: 4,
+    }
+
+    def align(offset: int, alignment: int) -> int:
+        return (offset + alignment - 1) & ~(alignment - 1)
+
+    names = []
+    formats = []
+    offsets = []
+    offset = 0
+    vertex_alignment = 1
+    if weight_format:
+        names.append("weights")
+        formats.append((unsigned_types[weight_format], weight_count))
+        offsets.append(offset)
+        offset += type_sizes[weight_format] * weight_count
+        vertex_alignment = max(
+            vertex_alignment,
+            type_sizes[weight_format],
+        )
+
+    if texture_format:
+        alignment = type_sizes[texture_format]
+        offset = align(offset, alignment)
+        names.append("uvs")
+        formats.append((unsigned_types[texture_format], 2))
+        offsets.append(offset)
+        offset += type_sizes[texture_format] * 2
+        vertex_alignment = max(vertex_alignment, alignment)
+
+    if color_format:
+        color_size = 2 if color_format < 7 else 4
+        offset = align(offset, color_size)
+        names.append("color")
+        formats.append("<u2" if color_size == 2 else "<u4")
+        offsets.append(offset)
+        offset += color_size
+        vertex_alignment = max(vertex_alignment, color_size)
+
+    if normal_format:
+        alignment = type_sizes[normal_format]
+        offset = align(offset, alignment)
+        names.append("normal")
+        formats.append((signed_types[normal_format], 3))
+        offsets.append(offset)
+        offset += type_sizes[normal_format] * 3
+        vertex_alignment = max(vertex_alignment, alignment)
+
     if position_format:
-        if position_format == 1:
-            elem_type = "<i1"
-        elif position_format == 2:
-            elem_type = "<i2"
-        else:
-            elem_type = "<f4"
-        fields.append(("position", elem_type, 3))
-    return np.dtype(fields)
+        alignment = type_sizes[position_format]
+        offset = align(offset, alignment)
+        names.append("position")
+        formats.append((signed_types[position_format], 3))
+        offsets.append(offset)
+        offset += type_sizes[position_format] * 3
+        vertex_alignment = max(vertex_alignment, alignment)
+
+    vertex_size = align(offset, vertex_alignment)
+    vertex_dtype = np.dtype(
+        {
+            "names": names,
+            "formats": formats,
+            "offsets": offsets,
+            "itemsize": vertex_size,
+        }
+    )
+    if morph_count == 1:
+        return vertex_dtype
+    return np.dtype(
+        [
+            ("morphs", vertex_dtype, morph_count),
+        ]
+    )
 
 
 def _read_display_lists(bs: BinaryReader) -> list[DisplayList]:
@@ -126,6 +172,7 @@ def _read_display_lists(bs: BinaryReader) -> list[DisplayList]:
 
         # Read display list
         display_list = DisplayList([], np.array([]))
+        vertex_count = 0
         while True:
             command, argument = bs.read_ge_command()
             if command == GECommand.RET:
@@ -137,15 +184,15 @@ def _read_display_lists(bs: BinaryReader) -> list[DisplayList]:
                 continue
             flags = (argument & 0xF80000) >> 0x13
             primitive_type = PrimitiveType((argument & 0x70000) >> 0x10)
-            vertex_count = argument & 0xFFFF
-
+            vertex_count += argument & 0xFFFF
             display_list.primitives.append(
                 Primitive(primitive_type, vertex_count, flags)
             )
-            display_list.vertices = np.empty(vertex_count, vertex_dtype)
+        display_list.vertices = np.empty(vertex_count, vertex_dtype)
         display_lists.append(display_list)
 
     # Read vertices
+    logging.info(f"Vertex start offset: {bs.tell()}")
     for display_list in display_lists:
         display_list.vertices[...] = np.frombuffer(
             bs.getbuffer(),
@@ -153,6 +200,7 @@ def _read_display_lists(bs: BinaryReader) -> list[DisplayList]:
             display_list.vertices.size,
             bs.tell(),
         )
+        bs.seek(display_list.vertices.nbytes, 1)
     return display_lists
 
 

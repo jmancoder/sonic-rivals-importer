@@ -16,7 +16,7 @@ from bpy_extras.io_utils import ImportHelper
 from bpy.props import StringProperty
 from bpy.types import Operator, Context
 
-from . import str_reader
+from . import str_reader, str_importer
 
 
 class IMPORT_OT_SCENE_str(Operator, ImportHelper):
@@ -35,7 +35,9 @@ class IMPORT_OT_SCENE_str(Operator, ImportHelper):
     def execute(self, context: Context):
         in_path = Path(self.filepath)
         with open(in_path, "rb") as f:
-            str_reader.read_str(f)
+            model = str_reader.read_str(f)
+
+        str_importer.import_str(context, model)
         return {"FINISHED"}
 
 

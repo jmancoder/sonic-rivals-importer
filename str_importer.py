@@ -50,6 +50,11 @@ def import_str(context: Context, model: Model) -> None:
                                     vertex_idx + i + 2,
                                 )
                             )
+                case PrimitiveType.TRIANGLE_FAN:
+                    for i in range(1, prim.vertex_count - 1):
+                        triangles.append(
+                            (vertex_idx, vertex_idx + i, vertex_idx + i + 1)
+                        )
                 case _:
                     logger.error("Unimplemented primitive type %s", prim.prim_type)
             vertex_idx += prim.vertex_count

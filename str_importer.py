@@ -13,22 +13,55 @@ def import_str(context: Context, model: Model) -> None:
         if "position" not in display_list.vertices.dtype.names:
             return
 
+        # Convert primitives to triangles
         triangles: list[tuple[int, int, int]] = []
-        vertex_cursor = 0
+        vertex_idx = 0
         for prim in display_list.primitives:
             match prim.prim_type:
                 case PrimitiveType.POINTS:
                     pass
-                case PrimitiveType.TRIANGLE_STRIP:
-                    pass
                 case PrimitiveType.TRIANGLES:
-                    pass
+                    for i in range(0, prim.vertex_count - 2, 3):
+                        triangles.append(
+                            (
+                                vertex_idx + i,
+                                vertex_idx + i + 1,
+                                vertex_idx + i + 2,
+                            )
+                        )
+                case PrimitiveType.TRIANGLE_STRIP:
+                    for i in range(prim.vertex_count - 2):
+                        if i & 1:
+                            triangles.append(
+                                (
+                                    vertex_idx + i,
+                                    vertex_idx + i + 2,
+                                    vertex_idx + i + 1,
+                                )
+                            )
+                        else:
+                            triangles.append(
+                                (
+                                    vertex_idx + i,
+                                    vertex_idx + i + 1,
+                                    vertex_idx + i + 2,
+                                )
+                            )
                 case _:
-                    logging.error(f"Unimplemented primitive type {prim.prim_type}")
-            vertex_cursor += prim.vertex_count
+                    logging.error("Unimplemented primitive type %s", prim.prim_type)
+            vertex_idx += prim.vertex_count
+
+        # Quantize positions
+        positions = display_list.vertices["position"]
+        if display_list.vertex_flags.position_format == 1:
+            positions = positions.astype(float) / 127.0
+        elif display_list.vertex_flags.position_format == 2:
+            positions = positions.astype(float) / 32767.0
 
         mesh = bpy.data.meshes.new(model.name)
-        mesh.from_pydata(display_list.vertices["position"], [], triangles)
+        mesh.from_pydata(positions, [], triangles)
+        mesh.validate(verbose=True)
+        mesh.update()
 
         mesh_obj = bpy.data.objects.new(model.name, mesh)
         context.collection.objects.link(mesh_obj)

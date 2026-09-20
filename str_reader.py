@@ -13,6 +13,18 @@ RACER_BASE_0 = 0x8E149A0
 RACER_BASE_1 = 0x9047CE0
 
 
+class VertexFlags(NamedTuple):
+    transform_bypass: bool
+    morph_count: int
+    weight_count: int
+    index_format: int
+    weight_format: int
+    position_format: int
+    normal_format: int
+    color_format: int
+    texture_format: int
+
+
 class PrimitiveType(Enum):
     POINTS = 0
     LINES = 1
@@ -33,6 +45,7 @@ class Primitive(NamedTuple):
 class DisplayList:
     primitives: list[Primitive]
     vertices: npt.NDArray
+    vertex_flags: VertexFlags
 
 
 class Model(NamedTuple):
@@ -40,17 +53,7 @@ class Model(NamedTuple):
     display_lists: list[DisplayList]
 
 
-def _read_vtype(vtype_arg: int) -> npt.DTypeLike:
-    transform_bypass = (vtype_arg >> 23) & 0x1
-    morph_count = ((vtype_arg >> 18) & 0x7) + 1
-    weight_count = ((vtype_arg >> 14) & 0x7) + 1
-    index_format = (vtype_arg >> 11) & 0x3
-    weight_format = (vtype_arg >> 9) & 0x3
-    position_format = (vtype_arg >> 7) & 0x3
-    normal_format = (vtype_arg >> 5) & 0x3
-    color_format = (vtype_arg >> 2) & 0x7
-    texture_format = vtype_arg & 0x3
-
+def _vtype_flags_to_dtype(flags: VertexFlags) -> npt.DTypeLike:
     unsigned_types = {
         1: "<u1",
         2: "<u2",
@@ -75,27 +78,27 @@ def _read_vtype(vtype_arg: int) -> npt.DTypeLike:
     offsets = []
     offset = 0
     vertex_alignment = 1
-    if weight_format:
+    if flags.weight_format:
         names.append("weights")
-        formats.append((unsigned_types[weight_format], weight_count))
+        formats.append((unsigned_types[flags.weight_format], flags.weight_count))
         offsets.append(offset)
-        offset += type_sizes[weight_format] * weight_count
+        offset += type_sizes[flags.weight_format] * flags.weight_count
         vertex_alignment = max(
             vertex_alignment,
-            type_sizes[weight_format],
+            type_sizes[flags.weight_format],
         )
 
-    if texture_format:
-        alignment = type_sizes[texture_format]
+    if flags.texture_format:
+        alignment = type_sizes[flags.texture_format]
         offset = align(offset, alignment)
         names.append("uvs")
-        formats.append((unsigned_types[texture_format], 2))
+        formats.append((unsigned_types[flags.texture_format], 2))
         offsets.append(offset)
-        offset += type_sizes[texture_format] * 2
+        offset += type_sizes[flags.texture_format] * 2
         vertex_alignment = max(vertex_alignment, alignment)
 
-    if color_format:
-        color_size = 2 if color_format < 7 else 4
+    if flags.color_format:
+        color_size = 2 if flags.color_format < 7 else 4
         offset = align(offset, color_size)
         names.append("color")
         formats.append("<u2" if color_size == 2 else "<u4")
@@ -103,22 +106,22 @@ def _read_vtype(vtype_arg: int) -> npt.DTypeLike:
         offset += color_size
         vertex_alignment = max(vertex_alignment, color_size)
 
-    if normal_format:
-        alignment = type_sizes[normal_format]
+    if flags.normal_format:
+        alignment = type_sizes[flags.normal_format]
         offset = align(offset, alignment)
         names.append("normal")
-        formats.append((signed_types[normal_format], 3))
+        formats.append((signed_types[flags.normal_format], 3))
         offsets.append(offset)
-        offset += type_sizes[normal_format] * 3
+        offset += type_sizes[flags.normal_format] * 3
         vertex_alignment = max(vertex_alignment, alignment)
 
-    if position_format:
-        alignment = type_sizes[position_format]
+    if flags.position_format:
+        alignment = type_sizes[flags.position_format]
         offset = align(offset, alignment)
         names.append("position")
-        formats.append((signed_types[position_format], 3))
+        formats.append((signed_types[flags.position_format], 3))
         offsets.append(offset)
-        offset += type_sizes[position_format] * 3
+        offset += type_sizes[flags.position_format] * 3
         vertex_alignment = max(vertex_alignment, alignment)
 
     vertex_size = align(offset, vertex_alignment)
@@ -130,11 +133,11 @@ def _read_vtype(vtype_arg: int) -> npt.DTypeLike:
             "itemsize": vertex_size,
         }
     )
-    if morph_count == 1:
+    if flags.morph_count == 1:
         return vertex_dtype
     return np.dtype(
         [
-            ("morphs", vertex_dtype, morph_count),
+            ("morphs", vertex_dtype, flags.morph_count),
         ]
     )
 
@@ -168,11 +171,22 @@ def _read_display_lists(bs: BinaryReader) -> list[DisplayList]:
         if command != GECommand.VTYPE:
             logging.error(f"Expected VTYPE command; got {command}")
             continue
-        vertex_dtype = _read_vtype(argument)
+        vertex_flags = VertexFlags(
+            ((argument >> 23) & 0x1) > 0,
+            ((argument >> 18) & 0x7) + 1,
+            ((argument >> 14) & 0x7) + 1,
+            (argument >> 11) & 0x3,
+            (argument >> 9) & 0x3,
+            (argument >> 7) & 0x3,
+            (argument >> 5) & 0x3,
+            (argument >> 2) & 0x7,
+            argument & 0x3,
+        )
+        vertex_dtype = _vtype_flags_to_dtype(vertex_flags)
 
         # Read display list
-        display_list = DisplayList([], np.array([]))
-        vertex_count = 0
+        display_list = DisplayList([], np.array([]), vertex_flags)
+        list_vertex_count = 0
         while True:
             command, argument = bs.read_ge_command()
             if command == GECommand.RET:
@@ -184,11 +198,12 @@ def _read_display_lists(bs: BinaryReader) -> list[DisplayList]:
                 continue
             flags = (argument & 0xF80000) >> 0x13
             primitive_type = PrimitiveType((argument & 0x70000) >> 0x10)
-            vertex_count += argument & 0xFFFF
+            prim_vertex_count = argument & 0xFFFF
+            list_vertex_count += prim_vertex_count
             display_list.primitives.append(
-                Primitive(primitive_type, vertex_count, flags)
+                Primitive(primitive_type, prim_vertex_count, flags)
             )
-        display_list.vertices = np.empty(vertex_count, vertex_dtype)
+        display_list.vertices = np.empty(list_vertex_count, vertex_dtype)
         display_lists.append(display_list)
 
     # Read vertices

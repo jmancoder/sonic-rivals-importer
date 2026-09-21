@@ -1,29 +1,33 @@
 import logging
 
 import bpy
-from bpy.types import Context
+from bpy.types import Context, Object
 import numpy as np
+import numpy.typing as npt
 
-from .str_reader import Model, PrimitiveType
+from . import str_reader
 
 logger = logging.getLogger(__name__)
 
 
-def import_str(context: Context, model: Model) -> None:
-    for display_list in model.display_lists:
+def _import_submeshes(context, mesh_data: str_reader.Mesh) -> list[Object]:
+    mesh_objects: list[Object] = []
+    for i, display_list in enumerate(mesh_data.display_lists):
         if display_list.vertices.size == 0:
-            return
+            logging.warning("Display list %d contained no vertices", i)
+            continue
         if "position" not in display_list.vertices.dtype.names:
-            return
+            logging.warning("Display list %d contained no vertex positions", i)
+            continue
 
         # Convert primitives to triangles
         triangles: list[tuple[int, int, int]] = []
         vertex_idx = 0
         for prim in display_list.primitives:
             match prim.prim_type:
-                case PrimitiveType.POINTS:
+                case str_reader.PrimitiveType.POINTS:
                     pass
-                case PrimitiveType.TRIANGLES:
+                case str_reader.PrimitiveType.TRIANGLES:
                     for i in range(0, prim.vertex_count - 2, 3):
                         triangles.append(
                             (
@@ -32,7 +36,7 @@ def import_str(context: Context, model: Model) -> None:
                                 vertex_idx + i + 2,
                             )
                         )
-                case PrimitiveType.TRIANGLE_STRIP:
+                case str_reader.PrimitiveType.TRIANGLE_STRIP:
                     for i in range(prim.vertex_count - 2):
                         if i & 1:
                             triangles.append(
@@ -50,7 +54,7 @@ def import_str(context: Context, model: Model) -> None:
                                     vertex_idx + i + 2,
                                 )
                             )
-                case PrimitiveType.TRIANGLE_FAN:
+                case str_reader.PrimitiveType.TRIANGLE_FAN:
                     for i in range(1, prim.vertex_count - 1):
                         triangles.append(
                             (vertex_idx, vertex_idx + i, vertex_idx + i + 1)
@@ -67,7 +71,7 @@ def import_str(context: Context, model: Model) -> None:
             positions = positions.astype(float) / 32767.0
 
         # Import geometry
-        mesh = bpy.data.meshes.new(model.name)
+        mesh = bpy.data.meshes.new("Mesh")
         mesh.from_pydata(positions, [], triangles)
 
         # Remove degenerate triangles
@@ -134,5 +138,12 @@ def import_str(context: Context, model: Model) -> None:
             )
 
         # Create mesh object
-        mesh_obj = bpy.data.objects.new(model.name, mesh)
+        mesh_obj = bpy.data.objects.new("Mesh", mesh)
         context.collection.objects.link(mesh_obj)
+        mesh_objects.append(mesh_obj)
+    return mesh_objects
+
+
+def import_str(context: Context, model: str_reader.Model) -> None:
+    for mesh_data in model.meshes:
+        _import_submeshes(context, mesh_data)

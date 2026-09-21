@@ -23,9 +23,7 @@ from . import str_reader, str_importer
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler()
-handler.setFormatter(
-    logging.Formatter("%(levelname)s: %(message)s (%(filename)s:%(lineno)d)")
-)
+handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
 logger.addHandler(handler)
 
 
@@ -45,9 +43,10 @@ class IMPORT_OT_SCENE_str(Operator, ImportHelper):
     def execute(self, context: Context):
         in_path = Path(self.filepath)
         with open(in_path, "rb") as f:
-            model = str_reader.read_str(f)
+            models = str_reader.read_str(f)
 
-        str_importer.import_str(context, model)
+        for model in models:
+            str_importer.import_str(context, model)
         return {"FINISHED"}
 
 

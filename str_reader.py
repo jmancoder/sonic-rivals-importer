@@ -172,10 +172,12 @@ def _read_geometry(bs: BinaryReader) -> list[DisplayList]:
     for _ in range(display_list_count):
         logger.debug("\nReading display list offset entry at 0x%X", bs.tell())
         while bs.tell() < vertex_start_off:
-            unk_int = bs.read_int32()
-            if unk_int == -1:
+            unk_value = bs.read_int32()
+            if unk_value < 0:
                 break
-            logger.debug("Skipped unknown int %i at 0x%X", unk_int, bs.tell() - 4)
+            logger.debug(
+                "Skipped unknown render value %i at 0x%X", unk_value, bs.tell() - 4
+            )
         display_list_offs.append(bs.read_uint32())
 
     # Read PSP GE commands

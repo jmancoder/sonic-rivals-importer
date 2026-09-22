@@ -28,7 +28,7 @@ logger.addHandler(handler)
 
 
 class IMPORT_OT_SCENE_str(Operator, ImportHelper):
-    """Load an STR file."""
+    """Load models from an STR file."""
 
     bl_idname = "import_scene.sonic_rivals_str"
     bl_label = "Import STR"
@@ -63,9 +63,7 @@ class IMPORT_OT_SCENE_str(Operator, ImportHelper):
 
 
 def menu_func_import(self, context):
-    self.layout.operator(
-        IMPORT_OT_SCENE_str.bl_idname, text="Sonic Rivals Stream (.str)"
-    )
+    self.layout.operator(IMPORT_OT_SCENE_str.bl_idname, text="Sonic Rivals (.STR)")
 
 
 def register():

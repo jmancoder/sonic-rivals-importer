@@ -43,11 +43,17 @@ class Primitive(NamedTuple):
     flags: int
 
 
+class DisplayListInfo(NamedTuple):
+    dlist_offset: int
+    vertex_offset: int
+
+
 @dataclass
 class DisplayList:
     primitives: list[Primitive]
     vertices: npt.NDArray
     vertex_flags: VertexFlags
+    vertex_off: int
 
 
 class Mesh(NamedTuple):
@@ -168,23 +174,29 @@ def _read_geometry(bs: BinaryReader) -> list[DisplayList]:
     logger.debug("Display list count: %d", display_list_count)
 
     # Read display list offsets
-    display_list_offs: list[int] = []
+    dlist_info_entries: list[DisplayListInfo] = []
     for _ in range(display_list_count):
         logger.debug("\nReading display list offset entry at 0x%X", bs.tell())
+        vertices_off = 0
         while bs.tell() < vertex_start_off:
             unk_value = bs.read_int32()
-            if unk_value < 0:
+            if unk_value == -1:
+                break
+            elif unk_value < 0:
+                vertices_off = geometry_off + (~unk_value & 0xFFFFFFFF)
                 break
             logger.debug(
                 "Skipped unknown render value %i at 0x%X", unk_value, bs.tell() - 4
             )
-        display_list_offs.append(bs.read_uint32())
+        dlist_info_entries.append(
+            DisplayListInfo(geometry_off + bs.read_uint32(), vertices_off)
+        )
 
     # Read PSP GE commands
     display_lists: list[DisplayList] = []
-    for rel_off in display_list_offs:
+    for dlist_info in dlist_info_entries:
         # Find VTYPE command
-        bs.seek(geometry_off + rel_off)
+        bs.seek(dlist_info.dlist_offset)
         logger.debug("Reading display list GE commands at 0x%X", bs.tell())
         while True:
             command, argument = bs.read_ge_command()
@@ -217,7 +229,9 @@ def _read_geometry(bs: BinaryReader) -> list[DisplayList]:
         vertex_dtype = _vtype_flags_to_dtype(vertex_flags)
 
         # Read display list
-        display_list = DisplayList([], np.array([]), vertex_flags)
+        display_list = DisplayList(
+            [], np.array([]), vertex_flags, dlist_info.vertex_offset
+        )
         list_vertex_count = 0
         while True:
             command, argument = bs.read_ge_command()
@@ -241,6 +255,8 @@ def _read_geometry(bs: BinaryReader) -> list[DisplayList]:
     # Read vertices
     logger.debug("Vertex start offset: 0x%X", bs.tell())
     for display_list in display_lists:
+        if display_list.vertex_off > 0:
+            bs.seek(display_list.vertex_off)
         display_list.vertices[...] = np.frombuffer(
             bs.getbuffer(),
             display_list.vertices.dtype,

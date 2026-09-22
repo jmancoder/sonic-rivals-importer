@@ -14,7 +14,7 @@ from pathlib import Path
 
 import bpy
 from bpy_extras.io_utils import ImportHelper
-from bpy.props import StringProperty
+from bpy.props import EnumProperty, StringProperty
 from bpy.types import Operator, Context
 
 from . import str_reader, str_importer
@@ -40,11 +40,23 @@ class IMPORT_OT_SCENE_str(Operator, ImportHelper):
         maxlen=255,
     )
 
+    game: EnumProperty(
+        name="Game",
+        description="The game you are importing from.",
+        items=(
+            ("RIVALS_1", "Sonic Rivals 1", "Import from Sonic Rivals 1"),
+            ("RIVALS_2", "Sonic Rivals 2", "Import from Sonic Rivals 2"),
+        ),
+        default="RIVALS_1",
+    )
+
     def execute(self, context: Context):
         in_path = Path(self.filepath)
         with open(in_path, "rb") as f:
-            models = str_reader.read_str(f)
-
+            if self.game == "RIVALS_1":
+                models = str_reader.read_str_1(f)
+            else:
+                models = str_reader.read_str_2(f)
         for model in models:
             str_importer.import_str(context, model)
         return {"FINISHED"}

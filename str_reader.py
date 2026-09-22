@@ -11,9 +11,6 @@ from .binary_reader import BinaryReader, GECommand
 
 logger = logging.getLogger(__name__)
 
-RACER_BASE_0 = 0x8E149A0
-RACER_BASE_1 = 0x9047CE0
-
 
 class Material(NamedTuple): ...
 
@@ -298,15 +295,15 @@ def _read_model(bs: BinaryReader, base: int, models: list[Model]) -> None:
         _read_model(bs, base, models)
 
 
-def read_str(f: BufferedReader) -> list[Model]:
+def read_str_1(f: BufferedReader) -> list[Model]:
     bs = BinaryReader(f.read())
 
     bs.seek(0x1C)
     racer_type = bs.read_int32()
     if racer_type == 14:
-        base = RACER_BASE_0
+        base = 0x8E149A0
     elif racer_type == 15:
-        base = RACER_BASE_1
+        base = 0x9047CE0
     else:
         raise ValueError(f"Unexpected racer file type {racer_type}")
 
@@ -368,6 +365,60 @@ def read_str(f: BufferedReader) -> list[Model]:
         unk_off_4,
         unk_off_5,
     )
+
+    bs.seek(model_off)
+    models: list[Model] = []
+    _read_model(bs, base, models)
+    return models
+
+
+def read_str_2(f: BufferedReader) -> list[Model]:
+    bs = BinaryReader(f.read())
+
+    bs.seek(0x1C)
+    racer_type = bs.read_int32()
+    if racer_type == 14:
+        base = 0x8F61670
+    elif racer_type == 15:
+        base = 0x90C7CE0
+    else:
+        raise ValueError(f"Unexpected racer file type {racer_type}")
+
+    bs.seek(0x5500)
+    wrapper_2_off = bs.read_uint32() - base
+
+    bs.seek(wrapper_2_off)
+    logger.debug("Wrapper 2 offset: 0x%X", bs.tell())
+    flags = bs.read_uint32()
+    file_header_off = bs.read_uint32() - base
+    bs.seek(92, 1)
+    unk_off_0 = bs.read_uint32() - base
+    bs.seek(8, 1)
+    unk_off_1 = bs.read_uint32() - base
+    wrapper_1_off = bs.read_uint32() - base
+    logger.debug("Unknown offsets: 0x%X, 0x%X\n", unk_off_0, unk_off_1)
+
+    bs.seek(wrapper_1_off)
+    logger.debug("Wrapper 1 offset: 0x%X", bs.tell())
+    flags = bs.read_uint32()
+    bs.read_int32()
+    bs.read_int32()
+    unk_off_0 = bs.read_uint32() - base
+    bs.read_vec4f()
+    bs.read_vec4f()
+    bs.read_vec4f()
+    bs.read_vec4f()
+    wrapper_0_off = bs.read_uint32() - base
+    parent_off = bs.read_uint32() - base
+    logger.debug("Unknown offset: 0x%X\n", unk_off_0)
+
+    bs.seek(wrapper_0_off)
+    logger.debug("Wrapper 0 offset: 0x%X", bs.tell())
+    sig = bs.read_int32()
+    if sig != 71:
+        raise ValueError(f"Expected wrapper 0 signature 71; got {sig}")
+    matrix_off = bs.read_uint32() - base
+    model_off = bs.read_uint32() - base
 
     bs.seek(model_off)
     models: list[Model] = []

@@ -10,8 +10,9 @@ from . import str_reader
 logger = logging.getLogger(__name__)
 
 
-def _import_submeshes(context, mesh_data: str_reader.Mesh) -> list[Object]:
-    mesh_objects: list[Object] = []
+def _import_mesh(context, mesh_data: str_reader.Mesh) -> Object:
+    parent_obj = bpy.data.objects.new("Mesh", None)
+    context.collection.objects.link(parent_obj)
     for i, display_list in enumerate(mesh_data.display_lists):
         if display_list.vertices.size == 0:
             logging.warning("Display list %d contained no vertices", i)
@@ -138,12 +139,17 @@ def _import_submeshes(context, mesh_data: str_reader.Mesh) -> list[Object]:
             )
 
         # Create mesh object
-        mesh_obj = bpy.data.objects.new("Mesh", mesh)
+        mesh_obj = bpy.data.objects.new("Display List", mesh)
         context.collection.objects.link(mesh_obj)
-        mesh_objects.append(mesh_obj)
-    return mesh_objects
+        mesh_obj.parent = parent_obj
+    return parent_obj
 
 
 def import_str(context: Context, model: str_reader.Model) -> None:
+    armature = bpy.data.armatures.new("Armature")
+    armature_obj = bpy.data.objects.new("Armature", armature)
+    context.collection.objects.link(armature_obj)
+
     for mesh_data in model.meshes:
-        _import_submeshes(context, mesh_data)
+        mesh_obj = _import_mesh(context, mesh_data)
+        mesh_obj.parent = armature_obj

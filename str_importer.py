@@ -88,12 +88,12 @@ def _import_mesh(context: Context, mesh_data: str_reader.Mesh) -> Object:
                     logger.error("Unimplemented primitive type %s", prim.prim_type)
             vertex_idx += prim.vertex_count
 
-        # Quantize positions
+        # Scale positions
         positions = display_list.vertices["position"]
         if display_list.vertex_flags.position_format == 1:
-            positions = positions.astype(float) / 127.0
+            positions = positions.astype(float) / 128.0
         elif display_list.vertex_flags.position_format == 2:
-            positions = positions.astype(float) / 32767.0
+            positions = positions.astype(float) / 32768.0
 
         # Import geometry
         mesh = bpy.data.meshes.new("Mesh")
@@ -104,22 +104,23 @@ def _import_mesh(context: Context, mesh_data: str_reader.Mesh) -> Object:
         mesh.validate(verbose=True)
         mesh.update()
 
-        # Quantize and import normals
+        # Scale and import normals
         if "normal" in display_list.vertices.dtype.names:
             normals = display_list.vertices["normal"]
             if display_list.vertex_flags.normal_format == 1:
-                normals = normals.astype(float) / 127.0
+                normals = normals.astype(float) / 128.0
             elif display_list.vertex_flags.normal_format == 2:
-                normals = normals.astype(float) / 32767.0
+                normals = normals.astype(float) / 32768.0
             mesh.normals_split_custom_set_from_vertices(normals)
 
-        # Quantize and import UVs
+        # Scale and import UVs
         if "uv" in display_list.vertices.dtype.names:
             uvs = display_list.vertices["uv"]
             if display_list.vertex_flags.uv_format == 1:
-                uvs = uvs.astype("<f4") / 127.0
+                uvs = display_list.vertices["uv"].astype("<f4") / 128.0
             elif display_list.vertex_flags.uv_format == 2:
-                uvs = uvs.astype("<f4") / 32767.0
+                uvs = display_list.vertices["uv"].astype("<f4") / 32768.0
+            uvs[:, 1] = 1.0 - uvs[:, 1]
 
             uv_layer = mesh.uv_layers.new()
             vertex_idx_array = np.empty(len(mesh.loops), dtype=np.int32)

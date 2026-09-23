@@ -12,7 +12,15 @@ from .binary_reader import BinaryReader, GECommand
 logger = logging.getLogger(__name__)
 
 
-class Material(NamedTuple): ...
+class Texture(NamedTuple):
+    name: str
+    width: int
+    height: int
+    pixels: npt.NDArray
+
+
+class Material(NamedTuple):
+    texture: Texture
 
 
 class VertexFlags(NamedTuple):
@@ -66,9 +74,100 @@ class Model(NamedTuple):
     meshes: list[Mesh]
 
 
-def _read_material(bs: BinaryReader) -> Material:
+def _unswizzle_psp(
+    indices: npt.NDArray, img_width: int, img_height: int, bpp: int
+) -> np.ndarray:
+    raw_stride = (img_width * bpp + 7) // 8
+    stride = (raw_stride + 15) & ~15
+    row_blocks = stride // 16
+
+    y = np.arange(img_height)[:, None]
+    x = np.arange(raw_stride)[None, :]
+
+    block_x = x // 16
+    block_y = y // 8
+    block_index = block_x + block_y * row_blocks
+
+    block_address = block_index * 128
+    local_position = (x % 16) + (y % 8) * 16
+
+    offsets = block_address + local_position
+    max_offset = offsets.max() if offsets.size > 0 else -1
+    if max_offset >= len(indices):
+        indices = np.pad(indices, (0, max_offset - len(indices) + 1))
+
+    return indices[offsets]
+
+
+def _read_texture(bs: BinaryReader, base: int) -> Texture:
     sig = bs.read_int32()
-    return Material()
+    if sig != 84:
+        logger.error(
+            "Expected texture signature 84 at 0x%X; got %d", bs.tell() - 4, sig
+        )
+        return Texture("Dummy", 1, 1, np.array([0.0, 0.0, 0.0, 1.0]))
+
+    pixels_off = bs.read_uint32() - base
+    palette_off = bs.read_uint32() - base
+    pixel_buf_width = bs.read_uint16()
+    width = 1 << bs.read_uint8()
+    height = 1 << bs.read_uint8()
+    pixel_format = bs.read_uint8()
+    bs.read_uint8()
+    texture_mode = bs.read_uint8()
+    clut_count = bs.read_uint8()
+    bs.read_uint32()
+    bs.read_uint32()
+    bs.read_int32()
+    bs.read_int32()
+    bs.read_int32()
+    bs.read_int32()
+    bs.read_int32()
+    unk_ptr_0 = bs.read_uint32()
+    unk_ptr_1 = bs.read_uint32()
+    unk_ptr_2 = bs.read_uint32()
+    unk_ptr_3 = bs.read_uint32()
+    unk_ptr_4 = bs.read_uint32()
+    name = bs.read_aligned_cstring()
+
+    if pixel_format == 4:
+        # PAL4
+        bs.seek(pixels_off)
+        raw_indices = np.frombuffer(
+            bs.getbuffer(), "<u1", width * height // 2, bs.tell()
+        )
+        packed_indices = _unswizzle_psp(raw_indices, width, height, 4)
+        indices = np.empty((height, width), dtype=np.uint8)
+        indices[:, 0::2] = packed_indices & 0x0F
+        indices[:, 1::2] = packed_indices >> 4
+        indices = indices[::-1]
+
+        bs.seek(palette_off)
+        palette = np.frombuffer(bs.getbuffer(), "<u1", 64, bs.tell()).reshape(-1, 4)
+        pixels = palette[indices].astype("<f4") / 255.0
+        pixels = pixels.ravel()
+    else:
+        logger.error(
+            'Texture "%s" uses unimplemented pixel format %d', name, pixel_format
+        )
+        pixels = np.tile([0.0, 0.0, 0.0, 1.0], width * height)
+    return Texture(name, width, height, pixels)
+
+
+def _read_material(bs: BinaryReader, base: int) -> Material:
+    sig = bs.read_int32()
+    unk_count = bs.read_int32()
+    texture_off = bs.read_uint32() - base
+    unk_floats_0 = [bs.read_float() for _ in range(7)]
+    unk_off = bs.read_uint32() - base
+    unk_floats_1 = [bs.read_float() for _ in range(7)]
+    material_end = bs.tell()
+
+    bs.seek(texture_off)
+    texture = _read_texture(bs, base)
+
+    bs.seek(material_end)
+    return Material(texture)
 
 
 def _vtype_flags_to_dtype(flags: VertexFlags) -> npt.DTypeLike:
@@ -296,7 +395,7 @@ def _read_model(bs: BinaryReader, base: int, models: list[Model]) -> None:
         next_mesh_off = bs.tell()
 
         bs.seek(material_off)
-        material = _read_material(bs)
+        material = _read_material(bs, base)
         bs.seek(geometry_off)
         geometry = _read_geometry(bs)
         meshes.append(Mesh(material, geometry))

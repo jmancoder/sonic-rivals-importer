@@ -1,7 +1,7 @@
 import logging
 
 import bpy
-from bpy.types import Context, Object
+from bpy.types import Context, Material, Object
 import numpy as np
 import numpy.typing as npt
 
@@ -10,9 +10,33 @@ from . import str_reader
 logger = logging.getLogger(__name__)
 
 
-def _import_mesh(context, mesh_data: str_reader.Mesh) -> Object:
+def _import_material(material_data: str_reader.Material) -> Material:
+    material = bpy.data.materials.new(material_data.texture.name)
+    material.use_nodes = True
+    nodes = material.node_tree.nodes
+    bsdf = nodes.get("Principled BSDF")
+    links = material.node_tree.links
+
+    # Create image
+    texture = material_data.texture
+    image = bpy.data.images.new(texture.name, texture.width, texture.height)
+    image.pixels = texture.pixels
+
+    # Add Image Texture node to material
+    image_node = nodes.new("ShaderNodeTexImage")
+    image_node.image = image
+    image_node.location = (-500.0, 0.0)
+    links.new(image_node.outputs["Color"], bsdf.inputs["Base Color"])
+    links.new(image_node.outputs["Alpha"], bsdf.inputs["Alpha"])
+    return material
+
+
+def _import_mesh(context: Context, mesh_data: str_reader.Mesh) -> Object:
+    material = _import_material(mesh_data.material)
+
     parent_obj = bpy.data.objects.new("Mesh", None)
     context.collection.objects.link(parent_obj)
+
     for i, display_list in enumerate(mesh_data.display_lists):
         if display_list.vertices.size == 0:
             logging.warning("Display list %d contained no vertices", i)
@@ -74,6 +98,7 @@ def _import_mesh(context, mesh_data: str_reader.Mesh) -> Object:
         # Import geometry
         mesh = bpy.data.meshes.new("Mesh")
         mesh.from_pydata(positions, [], triangles)
+        mesh.materials.append(material)
 
         # Remove degenerate triangles
         mesh.validate(verbose=True)
@@ -92,9 +117,9 @@ def _import_mesh(context, mesh_data: str_reader.Mesh) -> Object:
         if "uv" in display_list.vertices.dtype.names:
             uvs = display_list.vertices["uv"]
             if display_list.vertex_flags.uv_format == 1:
-                uvs = uvs.astype(float) / 127.0
-            elif display_list.vertex_flags.normal_format == 2:
-                uvs = uvs.astype(float) / 32767.0
+                uvs = uvs.astype("<f4") / 127.0
+            elif display_list.vertex_flags.uv_format == 2:
+                uvs = uvs.astype("<f4") / 32767.0
 
             uv_layer = mesh.uv_layers.new()
             vertex_idx_array = np.empty(len(mesh.loops), dtype=np.int32)

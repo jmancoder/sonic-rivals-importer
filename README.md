@@ -1,12 +1,13 @@
 # Sonic Rivals Importer
-A work-in-progress Blender 4.2+ add-on for importing racer models from Sonic Rivals 1 and 2.
+This is a work-in-progress Blender add-on for importing models from Sonic Rivals 1 and 2. Currently, only racer STR files can be imported.
 
 ## Usage
+1. Download the latest version of this add-on from the [releases](https://github.com/jmancoder/sonic-rivals-importer/releases) page and install it in Blender. Blender 4.2+ is supported.
 1. Click *File->Import->Sonic Rivals (.STR)*.
-2. Specify which Sonic Rivals version you are importing from with the *Game* property.
-3. Select a racer STR file from *PSP_GAME\USRDIR\STREAMS* and click *Import STR*.
+2. Use the *Game* dropdown to specify which Sonic Rivals version you are importing from.
+3. Select an STR file from *PSP_GAME\USRDIR\STREAMS* and click *Import STR*.
 
-## TODO:
+## TODO
 - Import full object hierarchy
 - Import bones
 - Import animations

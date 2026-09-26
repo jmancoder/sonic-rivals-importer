@@ -37,7 +37,7 @@ def _import_mesh(context: Context, mesh_data: str_reader.Mesh) -> Object:
     parent_obj = bpy.data.objects.new("Mesh", None)
     context.collection.objects.link(parent_obj)
 
-    for i, display_list in enumerate(mesh_data.display_lists):
+    for i, display_list in enumerate(mesh_data.geometry.display_lists):
         if display_list.vertices.size == 0:
             logging.warning("Display list %d contained no vertices", i)
             continue
@@ -120,6 +120,9 @@ def _import_mesh(context: Context, mesh_data: str_reader.Mesh) -> Object:
                 uvs = display_list.vertices["uv"].astype("<f4") / 128.0
             elif display_list.vertex_flags.uv_format == 2:
                 uvs = display_list.vertices["uv"].astype("<f4") / 32768.0
+
+            # Transform and flip UVs
+            uvs = uvs * mesh_data.geometry.uv_scale + mesh_data.geometry.uv_delta
             uvs[:, 1] = 1.0 - uvs[:, 1]
 
             uv_layer = mesh.uv_layers.new()

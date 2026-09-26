@@ -64,9 +64,15 @@ class DisplayList:
     vertex_off: int
 
 
+class Geometry(NamedTuple):
+    display_lists: list[DisplayList]
+    uv_scale: tuple[float, float]
+    uv_delta: tuple[float, float]
+
+
 class Mesh(NamedTuple):
     material: Material
-    display_lists: list[DisplayList]
+    geometry: Geometry
 
 
 class Model(NamedTuple):
@@ -100,6 +106,7 @@ def _unswizzle_psp(
 
 
 def _read_texture(bs: BinaryReader, base: int) -> Texture:
+    logger.debug("Texture offset: 0x%X", bs.tell())
     sig = bs.read_int32()
     if sig != 84:
         logger.error(
@@ -155,6 +162,7 @@ def _read_texture(bs: BinaryReader, base: int) -> Texture:
 
 
 def _read_material(bs: BinaryReader, base: int) -> Material:
+    logger.debug("Material offset: 0x%X", bs.tell())
     sig = bs.read_int32()
     unk_count = bs.read_int32()
     texture_off = bs.read_uint32() - base
@@ -259,14 +267,15 @@ def _vtype_flags_to_dtype(flags: VertexFlags) -> npt.DTypeLike:
     )
 
 
-def _read_geometry(bs: BinaryReader) -> list[DisplayList]:
+def _read_geometry(bs: BinaryReader) -> Geometry:
     geometry_off = bs.tell()
     logger.debug("Geometry offset: 0x%X", geometry_off)
     bs.read_int32()
     bs.read_int32()
     bs.read_int32()
     bs.read_int32()
-    bs.read_vec4f()
+    uv_scale = bs.read_vec2f()
+    uv_delta = bs.read_vec2f()
     display_list_chunk_size = bs.read_uint32()
     display_list_count = bs.read_int32()
     vertex_start_off = geometry_off + display_list_chunk_size
@@ -363,7 +372,7 @@ def _read_geometry(bs: BinaryReader) -> list[DisplayList]:
             bs.tell(),
         )
         bs.seek(display_list.vertices.nbytes, 1)
-    return display_lists
+    return Geometry(display_lists, uv_scale, uv_delta)
 
 
 def _read_model(bs: BinaryReader, base: int, models: list[Model]) -> None:

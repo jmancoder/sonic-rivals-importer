@@ -7,7 +7,6 @@ A work-in-progress Blender 4.2+ add-on for importing racer models from Sonic Riv
 3. Select a racer STR file from *PSP_GAME\USRDIR\STREAMS* and click *Import STR*.
 
 ## TODO:
-- Import textures
-- Import model hierarchy properly
+- Import full object hierarchy
 - Import bones
 - Import animations
